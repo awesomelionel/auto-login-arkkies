@@ -81,7 +81,7 @@ sleep(0.5)
 confirm_bttn = driver.find_element(xpath:'//*[@id="root"]/div/div/div/div[3]/div[1]/div/button[2]')
 driver.action.click(confirm_bttn).perform
 
-binding.b
+##binding.b
 
 sleep(0.5)
 ## Click the damn Confirm button again
@@ -119,7 +119,7 @@ unlock_bttn = driver.find_element(xpath:'/html/body/div/div/div/div/button')
 driver.action.click(unlock_bttn).perform
 
 ## Continue to log in and open the door
-driver.save_screenshot("./screen.png")
+#driver.save_screenshot("./screen.png")
 
 # close the browser and release its resources
 driver.quit
