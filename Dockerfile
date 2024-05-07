@@ -1,16 +1,15 @@
 # Use the official Ruby image as the base
 FROM ruby:3.3.0
 
-# Set the working directory inside the container
-WORKDIR /app
+# Install production dependencies.
+WORKDIR /usr/src/app
+COPY Gemfile Gemfile.lock ./
+ENV BUNDLE_FROZEN=true
+RUN gem install bundler && bundle config set --local without 'test'
 
-# Copy your Sinatra app files into the container
-COPY . .
-
-# Install dependencies (if needed)
+# Copy local code to the container image.
+COPY . ./
 RUN bundle install
 
-# Specify the command to run your app
-CMD ["bundle", "exec", "ruby", "app.rb", "-p", "8080"]
-
-EXPOSE 8080
+# Run the web service on container startup.
+CMD ["ruby", "./app.rb"]

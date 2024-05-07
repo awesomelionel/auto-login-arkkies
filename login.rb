@@ -9,7 +9,10 @@ PASSWORD = ENV['PASSWORD']
 options = Selenium::WebDriver::Chrome::Options.new
 options.page_load_strategy = :normal
 # to run Chrome in headless mode
-#options.add_argument("--headless") # comment out in development
+options.add_argument("--headless") # comment out in development
+options.add_argument("--disable-gpu")
+options.add_argument("window-size=1024,768")
+options.add_argument("--no-sandbox")
 # create a driver instance to control Chrome
 # with the specified options
 
@@ -123,5 +126,3 @@ driver.action.click(unlock_bttn).perform
 
 # close the browser and release its resources
 driver.quit
-
-return 1

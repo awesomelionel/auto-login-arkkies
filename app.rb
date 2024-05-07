@@ -1,6 +1,8 @@
 require 'sinatra'
 
-set :port, 8080
+set :bind, "0.0.0.0"
+port = ENV["PORT"] || "8080"
+set :port, port
 set :static, true
 set :public_folder, "static"
 set :views, "views"
