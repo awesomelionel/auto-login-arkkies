@@ -2,7 +2,6 @@ require "selenium-webdriver"
 require "dotenv/load"
 require "debug"
 
-
 EMAIL = ENV['EMAIL']
 PASSWORD = ENV['PASSWORD']
 
