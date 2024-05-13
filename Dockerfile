@@ -19,5 +19,8 @@ RUN gem install bundler && bundle config set --local without 'test'
 COPY . ./
 RUN bundle install
 
+# Set environment variables
+ENV DISPLAY=:99
+
 # Run the web service on container startup.
 CMD ["ruby", "./app.rb"]
