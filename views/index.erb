@@ -1,1 +1,20 @@
+<h1>Arkkies Auto Login</h1>
+
+<label>Home gym
+  <select id="home">
+    <% GYMS.each do |gym| %>
+      <option <%= 'selected' if gym == DEFAULT_HOME %>><%= gym %></option>
+    <% end %>
+  </select>
+</label>
+
+<label>Book at
+  <select id="destination">
+    <% GYMS.each do |gym| %>
+      <option <%= 'selected' if gym == DEFAULT_DESTINATION %>><%= gym %></option>
+    <% end %>
+  </select>
+</label>
+
 <button id="run-script">Run My Script</button>
+<p id="status"></p>
