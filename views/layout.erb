@@ -1,6 +1,11 @@
 <html>
     <head>
         <title>Arkkies Auto Login</title>
+        <style>
+          #status { min-height: 1.4em; margin-top: 0.75rem; }
+          #status.working { font-weight: 600; }
+          button:disabled { cursor: wait; opacity: 0.65; }
+        </style>
     </head>
 <body>
 <%= yield %>
