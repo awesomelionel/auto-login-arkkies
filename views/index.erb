@@ -1,1 +1,81 @@
-<button id="run-script">Run My Script</button>
+<div class="container d-flex justify-content-center align-items-center min-vh-100">
+        <div class="card shadow-lg" style="width: 100%; max-width: 400px;">
+            <div class="header">
+                <h2 class="card-title">Arkkies Auto Login</h2>
+            </div>
+            <div class="card-body p-4">
+                <form>
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" class="form-control" id="username" placeholder="Enter username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" class="form-control" id="password" placeholder="Enter password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="gymSelect">Choose Gym</label>
+                        <select class="form-control" id="gymSelect" required>
+                            <option value="" disabled selected>Select a gym</option>
+                            <option value="Bishan">Bishan</option>
+                            <option value="Hougang">Hougang</option>
+                            <option value="Choa Chu Kang">Choa Chu Kang</option>
+                            <option value="Jurong">Jurong</option>
+                            <option value="Keat Hong">Keat Hong</option>
+                            <option value="Serangoon North">Serangoon North</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-primary full-width-btn" onclick="submitForm('book_and_open')">Book & Open Door</button>
+                    <button type="button" class="btn btn-secondary full-width-btn" onclick="submitForm('open')">Open Door</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+<div id="screenshot-container">
+    <h2>Screenshot:</h2>
+    <img id="screenshot" style="max-width: 100%;"/>
+</div>
+
+<script>
+function submitForm(action) {
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const gymSelect = document.getElementById('gymSelect').value;
+
+    if (!username || !password || !gymSelect) {
+        alert('Please fill in all fields.');
+        return;
+    }
+
+    const formData = {
+        username: username,
+        password: password,
+        gym: gymSelect,
+        action: action
+    };
+
+    fetch('/checkCredentials', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle the response data as needed
+        console.log(data);
+        alert(`Action: ${action} for ${formData.gym} was successful!`);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert(`There was an error with the ${action} action for ${formData.gym}.`);
+    });
+}
+
+document.getElementById('gymForm').addEventListener('submit', function(event) {
+    event.preventDefault(); // Prevent the form from submitting via the browser
+    submitForm('book_and_open'); // Or any default action you want
+}); 
+</script>

@@ -1,16 +1,27 @@
-# Use the official Ruby image as the base
-FROM ruby:3.3.0
+FROM selenium/standalone-chrome
 
-# Set the working directory inside the container
+# Install Ruby.
+RUN \
+  sudo apt-get update && \
+  sudo apt-get install -y ruby ruby-dev ruby-bundler && \
+  sudo rm -rf /var/lib/apt/lists/*
+
+
+# Set environment variables
+ENV DISPLAY=:99
+EXPOSE 8080
+
+# Create a directory for the application
 WORKDIR /app
 
-# Copy your Sinatra app files into the container
+# Copy Gemfile and Gemfile.lock to the container
+COPY Gemfile Gemfile.lock ./
+
+# Install Ruby dependencies
+RUN sudo bundle install
+
+# Copy the application code
 COPY . .
 
-# Install dependencies (if needed)
-RUN bundle install
-
-# Specify the command to run your app
-CMD ["bundle", "exec", "ruby", "app.rb", "-p", "8080"]
-
-EXPOSE 8080
+# Command to run the application
+CMD ["ruby", "app.rb"]
