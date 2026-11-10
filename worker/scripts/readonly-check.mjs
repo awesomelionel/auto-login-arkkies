@@ -31,8 +31,36 @@ const pageOk =
   pageText.includes("Arkkies Auto Login") &&
   pageText.includes("Book &amp; Open Door") &&
   pageText.includes('id="email"') &&
-  pageText.includes('id="password"');
+  pageText.includes('id="password"') &&
+  pageText.includes('id="destination"') &&
+  pageText.includes('autocomplete="username"') &&
+  pageText.includes('autocomplete="current-password"') &&
+  !pageText.includes("Log in") &&
+  !pageText.includes("Home gym");
 console.log(JSON.stringify({ check: "GET /", status: page.status, ok: pageOk, bytes: pageText.length }));
+
+const gymsRes = await fetch(`${base}/api/gyms`);
+const gymsText = await gymsRes.text();
+let gymsBody;
+try {
+  gymsBody = JSON.parse(gymsText);
+} catch {
+  gymsBody = null;
+}
+const gyms = Array.isArray(gymsBody?.gyms) ? gymsBody.gyms : [];
+const bishanNorth = gyms.find((g) => g.id === "AGRBSN01");
+const gymsOk =
+  gymsRes.status === 200 &&
+  gyms.length > 0 &&
+  Boolean(bishanNorth);
+console.log(JSON.stringify({
+  check: "GET /api/gyms",
+  status: gymsRes.status,
+  ok: gymsOk,
+  count: gyms.length,
+  bishanNorth: bishanNorth ? `${bishanNorth.id} ${bishanNorth.name}` : null,
+  sample: gyms.slice(0, 5).map((g) => `${g.id} ${g.name}`),
+}, null, 2));
 
 const statusRes = await fetch(`${base}/api/status`, {
   method: "POST",
@@ -55,10 +83,9 @@ const summary = {
   home: data.home ?? null,
   destination: data.destination ?? null,
   gymCount: Array.isArray(data.gyms) ? data.gyms.length : 0,
-  gyms: Array.isArray(data.gyms) ? data.gyms.map((g) => `${g.id} ${g.name}`) : [],
   currentSlot: data.currentSlot ?? null,
   currentBooking: data.currentBooking ?? null,
   error: data.error ?? null,
 };
 console.log(JSON.stringify(summary, null, 2));
-process.exit(summary.ok ? 0 : 1);
+process.exit(pageOk && gymsOk && summary.ok ? 0 : 1);

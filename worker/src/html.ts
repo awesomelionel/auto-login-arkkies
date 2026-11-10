@@ -34,7 +34,7 @@ export function renderPage(): string {
     }
     h1 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 0 0 0.25rem; }
     .lede { color: var(--muted); margin: 0 0 1.4rem; line-height: 1.45; }
-    form, .panel {
+    form {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 1rem;
@@ -60,6 +60,7 @@ export function renderPage(): string {
       cursor: pointer;
     }
     button:disabled { opacity: 0.6; cursor: progress; }
+    button[aria-busy="true"] { cursor: progress; }
     .primary { background: var(--accent); color: var(--accent-ink); }
     .secondary { background: #2b3140; color: var(--ink); }
     .actions { display: grid; gap: var(--btn-gap); margin-top: 0.3rem; }
@@ -71,64 +72,77 @@ export function renderPage(): string {
     }
     #message.error { color: var(--danger); }
     #message.ok { color: var(--ok); }
-    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <main>
     <h1>Arkkies Auto Login</h1>
-    <p class="lede">Log in with your Arkkies account, pick a gym, then book a slot and open the door.</p>
+    <p class="lede">Enter your Arkkies account, pick the gym you want to go to, then book a slot and open the door.</p>
 
-    <form id="loginForm">
+    <form id="actionForm">
       <div class="field">
         <label for="email">Username</label>
-        <input id="email" name="email" type="email" autocomplete="username" required />
+        <input id="email" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required />
       </div>
       <div class="field">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required />
       </div>
-      <button class="primary" type="submit" id="loginBtn">Log in</button>
-    </form>
-
-    <div id="app" class="panel hidden">
-      <div class="field">
-        <label for="home">Home gym</label>
-        <select id="home"></select>
-      </div>
       <div class="field">
         <label for="destination">Gym to go to</label>
-        <select id="destination"></select>
+        <select id="destination" name="destination" required>
+          <option value="">Loading gyms…</option>
+        </select>
       </div>
       <div class="actions">
-        <button class="primary" type="button" id="bookOpenBtn">Book &amp; Open Door</button>
+        <button class="primary" type="submit" id="bookOpenBtn">Book &amp; Open Door</button>
         <button class="secondary" type="button" id="openBtn">Open Door</button>
       </div>
-    </div>
+    </form>
 
     <p id="message" role="status"></p>
   </main>
   <script>
     const key = new URLSearchParams(location.search).get("key");
     const api = (path) => path + (key ? "?key=" + encodeURIComponent(key) : "");
+    const STORE = { username: "arkkies.username", destination: "arkkies.destination", home: "arkkies.home" };
     const emailEl = document.getElementById("email");
     const passwordEl = document.getElementById("password");
-    const loginForm = document.getElementById("loginForm");
-    const app = document.getElementById("app");
-    const homeEl = document.getElementById("home");
     const destEl = document.getElementById("destination");
     const messageEl = document.getElementById("message");
-    const loginBtn = document.getElementById("loginBtn");
+    const formEl = document.getElementById("actionForm");
     const bookOpenBtn = document.getElementById("bookOpenBtn");
     const openBtn = document.getElementById("openBtn");
+    const BOOK_LABEL = bookOpenBtn.textContent;
+    const OPEN_LABEL = openBtn.textContent;
 
     function setMessage(text, kind) {
       messageEl.textContent = text || "";
       messageEl.className = kind || "";
     }
 
-    function creds() {
-      return { email: emailEl.value.trim(), password: passwordEl.value };
+    function readStore() {
+      try {
+        return {
+          username: localStorage.getItem(STORE.username) || "",
+          destination: localStorage.getItem(STORE.destination) || "",
+          home: localStorage.getItem(STORE.home) || "",
+        };
+      } catch {
+        return { username: "", destination: "", home: "" };
+      }
+    }
+
+    function writeStore(partial) {
+      try {
+        if (partial.username != null) localStorage.setItem(STORE.username, partial.username);
+        if (partial.destination != null) localStorage.setItem(STORE.destination, partial.destination);
+        if (partial.home) localStorage.setItem(STORE.home, partial.home);
+      } catch {}
+    }
+
+    function rememberedHome() {
+      return readStore().home;
     }
 
     function option(gym, selectedId) {
@@ -138,91 +152,108 @@ export function renderPage(): string {
       el.selected = gym.id === selectedId;
       return el;
     }
-    function fillGyms(gyms, homeId, destId) {
-      homeEl.replaceChildren(...gyms.map((g) => option(g, homeId)));
-      destEl.replaceChildren(...gyms.map((g) => option(g, destId)));
+
+    function fillGyms(gyms, selectedId) {
+      const pick = selectedId && gyms.some((g) => g.id === selectedId)
+        ? selectedId
+        : (gyms.some((g) => g.id === "AGRBSN01") ? "AGRBSN01" : (gyms[0] && gyms[0].id) || "");
+      destEl.replaceChildren(...gyms.map((g) => option(g, pick)));
     }
 
-    function describeStatus(data) {
-      const booking = data.currentBooking;
-      const slot = data.currentSlot;
-      if (booking) return "You already have a booking: " + booking.label + ".";
-      if (slot) return "Current slot: " + slot.label + ".";
-      return "No gym-access slot is open at that gym right now.";
-    }
-
-    async function post(path, body) {
-      const res = await fetch(api(path), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
-      });
+    async function parseJson(res) {
       const text = await res.text();
       let data = {};
       try { data = text ? JSON.parse(text) : {}; } catch {}
       if (!res.ok) {
         const err = new Error(data.error || ("Request failed (" + res.status + ")"));
         err.status = res.status;
+        err.data = data;
         throw err;
       }
       return data;
     }
 
-    async function refreshStatus() {
-      const data = await post("/api/status", {
-        ...creds(),
-        home: homeEl.value,
-        destination: destEl.value,
-      });
-      fillGyms(data.gyms, data.home.id, data.destination.id);
-      setMessage(describeStatus(data), "ok");
-      return data;
+    function rememberFrom(data) {
+      const saved = {};
+      saved.username = emailEl.value.trim();
+      if (destEl.value) saved.destination = destEl.value;
+      const homeId = data && data.home && data.home.id;
+      if (homeId) saved.home = homeId;
+      writeStore(saved);
     }
 
-    loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      loginBtn.disabled = true;
-      setMessage("Logging in…");
-      try {
-        const data = await post("/api/status", creds());
-        fillGyms(data.gyms, data.home.id, data.destination.id);
-        app.classList.remove("hidden");
-        setMessage(describeStatus(data), "ok");
-      } catch (err) {
-        setMessage(err.message || "Login failed.", "error");
-      } finally {
-        loginBtn.disabled = false;
-      }
-    });
-
-    destEl.addEventListener("change", async () => {
-      setMessage("Checking that gym…");
-      try { await refreshStatus(); }
-      catch (err) { setMessage(err.message || "Could not refresh status.", "error"); }
-    });
-
-    async function runAction(path, pending) {
+    async function runAction(path, btn, pending) {
       bookOpenBtn.disabled = true;
       openBtn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      btn.textContent = pending;
       setMessage(pending);
       try {
-        const data = await post(path, {
-          ...creds(),
-          home: homeEl.value,
+        const body = {
+          email: emailEl.value.trim(),
+          password: passwordEl.value,
           destination: destEl.value,
+        };
+        const home = rememberedHome();
+        if (home) body.home = home;
+        const res = await fetch(api(path), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
         });
-        const extra = data.window && data.window.label ? " " + data.window.label + "." : "";
-        setMessage((data.message || "Done.") + (data.message && data.message.includes("SGT") ? "" : extra), "ok");
+        const data = await parseJson(res);
+        rememberFrom(data);
+        const label = data.window && data.window.label;
+        const message = data.message || "Done.";
+        setMessage(message.includes("SGT") || !label ? message : message + " " + label + ".", "ok");
       } catch (err) {
+        if (err.data) rememberFrom(err.data);
         setMessage(err.message || "Something went wrong.", "error");
       } finally {
+        btn.removeAttribute("aria-busy");
+        bookOpenBtn.textContent = BOOK_LABEL;
+        openBtn.textContent = OPEN_LABEL;
         bookOpenBtn.disabled = false;
         openBtn.disabled = false;
       }
     }
 
-    bookOpenBtn.addEventListener("click", () => runAction("/api/book-and-open", "Booking and opening the door…"));
-    openBtn.addEventListener("click", () => runAction("/api/open-door", "Opening the door…"));
+    formEl.addEventListener("submit", (event) => {
+      event.preventDefault();
+      runAction("/api/book-and-open", bookOpenBtn, "Booking and opening the door…");
+    });
+    openBtn.addEventListener("click", () => {
+      runAction("/api/open-door", openBtn, "Opening the door…");
+    });
+
+    destEl.addEventListener("change", () => {
+      writeStore({ destination: destEl.value, username: emailEl.value.trim() });
+    });
+    emailEl.addEventListener("change", () => {
+      writeStore({ username: emailEl.value.trim() });
+    });
+
+    (async function init() {
+      const saved = readStore();
+      if (saved.username) emailEl.value = saved.username;
+      setMessage("Loading gyms…");
+      try {
+        const res = await fetch(api("/api/gyms"), { headers: { Accept: "application/json" } });
+        const data = await parseJson(res);
+        const gyms = data.gyms || [];
+        if (!gyms.length) throw new Error("No gyms were returned.");
+        fillGyms(gyms, saved.destination);
+        writeStore({ destination: destEl.value, username: emailEl.value.trim() });
+        setMessage("");
+      } catch (err) {
+        destEl.replaceChildren();
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Could not load gyms";
+        destEl.appendChild(empty);
+        setMessage(err.message || "Could not load the gym list.", "error");
+      }
+    })();
   </script>
 </body>
 </html>`;

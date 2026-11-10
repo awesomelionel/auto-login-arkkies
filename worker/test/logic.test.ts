@@ -10,7 +10,7 @@ import {
   windowFromBooking,
   windowFromSelection,
 } from "../src/logic";
-import { FALLBACK_GYMS, catalogFromOutletList, parseAllowedOutletIds, parseGymCatalog, resolveGym, resolveGyms } from "../src/gyms";
+import { FALLBACK_GYMS, catalogFromOutletList, filterGymOutlets, isGymOutlet, parseAllowedOutletIds, parseGymCatalog, resolveGym, resolveGyms } from "../src/gyms";
 import type { Booking, SlotSelection } from "../src/types";
 
 const home = "AGRBIS01";
@@ -203,5 +203,19 @@ describe("timingSafeEqual", () => {
     expect(await timingSafeEqual("secret", "secret")).toBe(true);
     expect(await timingSafeEqual("secret", "secret!")).toBe(false);
     expect(await timingSafeEqual("", "x")).toBe(false);
+  });
+});
+
+describe("gym outlet filtering", () => {
+  it("keeps physical gyms and drops product-only outlets", () => {
+    expect(isGymOutlet({ id: "AGRBSN01", name: "Ark Grit @ Bishan North" })).toBe(true);
+    expect(isGymOutlet({ id: "AMOWLH01", name: "Ark Move @ Woodleigh" })).toBe(true);
+    expect(isGymOutlet({ id: "ARKPLS01", name: "Ark+", brand: { name: "Ark Premium Access" } })).toBe(false);
+    expect(isGymOutlet({ id: "ARKCRP01", name: "Corp+", brand: { name: "Ark Corporate" } })).toBe(false);
+  });
+
+  it("falls back to every named outlet if nothing looks like a gym", () => {
+    const odd = [{ id: "ZZZ001", name: "Mystery Venue" }];
+    expect(filterGymOutlets(odd)).toEqual(odd);
   });
 });

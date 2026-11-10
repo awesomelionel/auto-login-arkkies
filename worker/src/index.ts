@@ -1,4 +1,5 @@
 import { bookAndOpen, getStatus, openDoor } from "./arkkies";
+import { listPublicGyms } from "./gyms";
 import { ArkkiesError } from "./errors";
 import { renderPage } from "./html";
 import { timingSafeEqual } from "./logic";
@@ -14,10 +15,20 @@ function json(data: unknown, status = 200): Response {
 
 function errorResponse(error: unknown): Response {
   if (error instanceof ArkkiesError) {
-    return json({ error: error.message, status: error.status }, error.status >= 400 && error.status < 600 ? error.status : 502);
+    const body: Record<string, unknown> = { error: error.message, status: error.status };
+    if (error.details) Object.assign(body, error.details);
+    return json(body, error.status >= 400 && error.status < 600 ? error.status : 502);
   }
   const message = error instanceof Error ? error.message : "Unexpected error.";
   return json({ error: message, status: 500 }, 500);
+}
+
+function maybeCache(): Cache | undefined {
+  try {
+    return caches.default;
+  } catch {
+    return undefined;
+  }
 }
 
 async function authorized(request: Request, env: Env): Promise<Response | null> {
@@ -74,6 +85,16 @@ export default {
         });
       }
 
+      if (request.method === "GET" && path === "/api/gyms") {
+        const gyms = await listPublicGyms((input, init) => fetch(input, init), maybeCache());
+        return new Response(JSON.stringify({ gyms }), {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
+          },
+        });
+      }
+
       if (request.method === "POST" && path === "/api/status") {
         const body = await readJson(request);
         const result = await getStatus(
@@ -81,7 +102,7 @@ export default {
           optionalString(body, "destination"),
           {
             home: optionalString(body, "home"),
-            cache: caches.default,
+            cache: maybeCache(),
           },
         );
         return json(result);

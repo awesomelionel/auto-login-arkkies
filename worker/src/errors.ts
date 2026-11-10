@@ -1,12 +1,14 @@
 export class ArkkiesError extends Error {
   readonly status: number;
   readonly expose: boolean;
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, message: string, expose = true) {
+  constructor(status: number, message: string, expose = true, details?: Record<string, unknown>) {
     super(message);
     this.name = "ArkkiesError";
     this.status = status;
     this.expose = expose;
+    this.details = details;
   }
 }
 

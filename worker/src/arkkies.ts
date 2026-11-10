@@ -284,10 +284,17 @@ export class ArkkiesClient {
   }
 }
 
-function assertDestinationAllowed(destination: string, allowedIds: string[]): void {
-  if (!allowedIds.includes(destination)) {
-    throw new ArkkiesError(403, `Your pass does not allow bookings at ${destination}.`);
-  }
+function denyDestination(
+  destination: string,
+  homeId: string,
+  allowedIds: string[],
+  catalog: Record<string, { label: string; longLabel: string }>,
+): void {
+  if (allowedIds.includes(destination)) return;
+  const dest = resolveGym(destination, catalog);
+  throw new ArkkiesError(403, `Your pass does not allow bookings at ${dest.name}.`, true, {
+    home: resolveGym(homeId, catalog),
+  });
 }
 
 export async function getStatus(
@@ -300,7 +307,8 @@ export async function getStatus(
   const sub = await client.getSubscription(options.home);
   const catalog = await client.gymCatalog();
   const gyms = resolveGyms(sub.allowedIds, catalog);
-  const destination = destinationId && sub.allowedIds.includes(destinationId) ? destinationId : sub.homeId;
+  if (destinationId) denyDestination(destinationId, sub.homeId, sub.allowedIds, catalog);
+  const destination = destinationId || sub.homeId;
   const [slots, bookings] = await Promise.all([
     client.getSlots(sub.homeId, destination),
     client.getBookings(sub.homeId),
@@ -321,12 +329,18 @@ async function sessionForAction(
   request: ActionRequest,
   options: ArkkiesClientOptions,
   allowWrites: boolean,
-): Promise<{ client: ArkkiesClient; sub: SubscriptionInfo; now: Date }> {
+): Promise<{
+  client: ArkkiesClient;
+  sub: SubscriptionInfo;
+  catalog: Record<string, { label: string; longLabel: string }>;
+  now: Date;
+}> {
   const client = new ArkkiesClient({ ...options, allowWrites });
   await client.login(request);
   const sub = await client.getSubscription(request.home);
-  assertDestinationAllowed(request.destination, sub.allowedIds);
-  return { client, sub, now: options.now ?? new Date() };
+  const catalog = await client.gymCatalog();
+  denyDestination(request.destination, sub.homeId, sub.allowedIds, catalog);
+  return { client, sub, catalog, now: options.now ?? new Date() };
 }
 
 function requireDoor(doorId: string | null, where: string): string {
@@ -338,7 +352,7 @@ export async function bookAndOpen(
   request: ActionRequest,
   options: ArkkiesClientOptions = {},
 ): Promise<ActionResult> {
-  const { client, sub, now } = await sessionForAction(request, options, true);
+  const { client, sub, catalog, now } = await sessionForAction(request, options, true);
   const dest = request.destination;
   let bookings = await client.getBookings(sub.homeId);
   let current = findCurrentBooking(bookings, dest, now);
@@ -374,6 +388,7 @@ export async function bookAndOpen(
     unlocked: true,
     skippedBooking,
     window,
+    home: resolveGym(sub.homeId, catalog),
     message: skippedBooking
       ? `Existing booking confirmed. Unlocked the door for ${window.label}.`
       : `Booked and unlocked the door for ${window.label}.`,
@@ -384,7 +399,7 @@ export async function openDoor(
   request: ActionRequest,
   options: ArkkiesClientOptions = {},
 ): Promise<ActionResult> {
-  const { client, sub, now } = await sessionForAction(request, options, true);
+  const { client, sub, catalog, now } = await sessionForAction(request, options, true);
   const dest = request.destination;
   const bookings = await client.getBookings(sub.homeId);
   const current = findCurrentBooking(bookings, dest, now);
@@ -400,6 +415,7 @@ export async function openDoor(
     unlocked: true,
     skippedBooking: true,
     window,
+    home: resolveGym(sub.homeId, catalog),
     message: `Unlocked the door for ${window.label}.`,
   };
 }
