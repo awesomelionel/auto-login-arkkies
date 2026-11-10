@@ -1,0 +1,2 @@
+# Optional. If set, every request must include ?key=<value>.
+# ACCESS_KEY=
