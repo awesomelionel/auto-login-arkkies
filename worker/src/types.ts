@@ -60,6 +60,7 @@ export type ActionResult = {
   unlocked: boolean;
   skippedBooking: boolean;
   window: CurrentWindow;
+  home: GymInfo;
   message: string;
 };
 

@@ -142,3 +142,109 @@ export function catalogFromOutletList(
   }
   return catalog;
 }
+
+export type OutletRecord = {
+  id?: string;
+  name?: string;
+  brand?: { name?: string } | string | null;
+};
+
+const GYM_ID_PREFIXES = /^(AGR|AMO|ALI|APO|ABL)/i;
+
+function brandName(outlet: OutletRecord): string {
+  if (!outlet.brand) return "";
+  if (typeof outlet.brand === "string") return outlet.brand;
+  return outlet.brand.name ?? "";
+}
+
+/** Physical gym locations, excluding product-only entries such as Ark+ or Corp+. */
+export function isGymOutlet(outlet: OutletRecord): boolean {
+  const id = (outlet.id ?? "").trim();
+  const name = (outlet.name ?? "").trim();
+  if (!id || !name) return false;
+  const productOnly = /^(ark\+?|corp\+?)$/i.test(name) || /premium access|corporate/i.test(brandName(outlet));
+  if (productOnly) return false;
+  if (name.includes(" @ ")) return true;
+  if (GYM_ID_PREFIXES.test(id)) return true;
+  return false;
+}
+
+export function filterGymOutlets(outlets: OutletRecord[]): OutletRecord[] {
+  const named = outlets.filter((outlet) => outlet.id && outlet.name?.trim());
+  const gyms = named.filter(isGymOutlet);
+  return gyms.length > 0 ? gyms : named;
+}
+
+const OUTLETS_URL = "https://api.arkkies.com/v2/brand/outlet";
+const UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
+type PublicGymsCache = { at: number; gyms: GymInfo[] };
+let publicGymsCache: PublicGymsCache | null = null;
+
+export function resetPublicGymsCache(): void {
+  publicGymsCache = null;
+}
+
+export function resetGymCaches(): void {
+  resetGymCatalogCache();
+  resetPublicGymsCache();
+}
+
+export async function listPublicGyms(
+  fetchFn: typeof fetch = (input, init) => fetch(input, init),
+  cache?: Cache,
+): Promise<GymInfo[]> {
+  if (publicGymsCache && Date.now() - publicGymsCache.at < MEMORY_TTL_MS) {
+    return publicGymsCache.gyms;
+  }
+
+  let outlets: OutletRecord[] = [];
+  const request = new Request(OUTLETS_URL, {
+    headers: {
+      "User-Agent": UA,
+      Origin: "https://arkkies.com",
+      Referer: "https://arkkies.com/",
+      Accept: "application/json",
+    },
+  });
+  try {
+    let source: string | null = cache ? await readCacheApi(cache, request) : null;
+    if (!source) {
+      const response = await fetchFn(request);
+      if (response.ok) {
+        source = await response.clone().text();
+        if (cache) {
+          const toStore = new Response(source, {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=21600",
+            },
+          });
+          try {
+            await cache.put(request, toStore);
+          } catch {
+            // Cache API is best-effort.
+          }
+        }
+      }
+    }
+    if (source) {
+      const body = JSON.parse(source) as { outlets?: OutletRecord[] };
+      outlets = body.outlets ?? [];
+    }
+  } catch {
+    outlets = [];
+  }
+
+  const bundle = await loadGymCatalog(fetchFn, cache);
+  const catalog = { ...FALLBACK_GYMS, ...bundle, ...catalogFromOutletList(outlets) };
+  const sourceIds = outlets.length
+    ? filterGymOutlets(outlets).map((outlet) => outlet.id).filter((id): id is string => Boolean(id))
+    : filterGymOutlets(
+        Object.entries(catalog).map(([id, entry]) => ({ id, name: entry.longLabel })),
+      ).map((outlet) => outlet.id!);
+  const gyms = resolveGyms(sourceIds.length ? sourceIds : Object.keys(FALLBACK_GYMS), catalog);
+  publicGymsCache = { at: Date.now(), gyms };
+  return gyms;
+}

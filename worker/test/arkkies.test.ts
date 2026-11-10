@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ArkkiesError } from "../src/errors";
 import { API_BASE, bookAndOpen, getStatus, openDoor } from "../src/arkkies";
 import type { FetchLike } from "../src/arkkies";
+import { listPublicGyms, resetGymCatalogCache, resetPublicGymsCache } from "../src/gyms";
+import worker from "../src/index";
 
 const HOME = "AGRBIS01";
 const DEST = "AGRBSN01";
@@ -55,6 +57,9 @@ function makeFetch(options?: { existingBooking?: boolean; confirmAfterBook?: boo
           { id: DEST, name: "Ark Grit @ Bishan North" },
           { id: HOME, name: "Ark Grit @ Bishan" },
           { id: "AGRHUG01", name: "Ark Grit @ Hougang 423" },
+          { id: "AMOWLH01", name: "Ark Move @ Woodleigh" },
+          { id: "ARKPLS01", name: "Ark+", brand: { name: "Ark Premium Access" } },
+          { id: "ARKCRP01", name: "Corp+", brand: { name: "Ark Corporate" } },
         ],
       });
     }
@@ -213,5 +218,82 @@ describe("write guard", () => {
     expect(status.home.id).toBe(HOME);
     expect(status.destination.id).toBe(DEST);
     expect(status.currentSlot?.doorId).toBe(DOOR);
+  });
+});
+
+describe("disallowed destination", () => {
+  it("returns a clear error and does not unlock when the pass does not cover that gym", async () => {
+    const { fetch, calls } = makeFetch();
+    await expect(openDoor({ ...creds, destination: "AMOWLH01" }, { fetch, now: NOW })).rejects.toMatchObject({
+      status: 403,
+      message: "Your pass does not allow bookings at Ark Move @ Woodleigh.",
+      details: { home: expect.objectContaining({ id: HOME }) },
+    } satisfies Partial<ArkkiesError>);
+    expect(calls.some((c) => c.url.includes("/door/unlock"))).toBe(false);
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/booking"))).toBe(false);
+  });
+
+  it("rejects a disallowed destination on the read-only status path too", async () => {
+    const { fetch, calls } = makeFetch();
+    await expect(getStatus(creds, "AMOWLH01", { fetch, now: NOW, home: HOME })).rejects.toMatchObject({
+      status: 403,
+      message: "Your pass does not allow bookings at Ark Move @ Woodleigh.",
+    } satisfies Partial<ArkkiesError>);
+    expect(calls.some((c) => c.url.includes("/door/unlock"))).toBe(false);
+  });
+});
+
+describe("public gyms list", () => {
+  afterEach(() => {
+    resetPublicGymsCache();
+    resetGymCatalogCache();
+  });
+
+  it("lists gym-type outlets from the public catalog and hides product-only entries", async () => {
+    const { fetch, calls } = makeFetch();
+    const gyms = await listPublicGyms(fetch);
+    const ids = gyms.map((g) => g.id);
+    expect(ids).toContain(DEST);
+    expect(ids).toContain(HOME);
+    expect(ids).not.toContain("ARKPLS01");
+    expect(ids).not.toContain("ARKCRP01");
+    expect(gyms.find((g) => g.id === DEST)?.name).toContain("Bishan North");
+    expect(calls.every((c) => !c.url.includes("/self-service/login") && !c.homeHeader)).toBe(true);
+  });
+
+  it("falls back to the public site catalog when the outlet API requires login", async () => {
+    const fetchFn: FetchLike = async (input) => {
+      const url = String(input);
+      if (url.includes("/brand/outlet") && !url.includes("/booking") && !url.includes("/door")) {
+        return new Response(JSON.stringify({ error: "Failed to validate token" }), { status: 401 });
+      }
+      if (url.includes("app.bundle.js")) {
+        return new Response(
+          `{label:"Bishan North",longLabel:"Ark Grit • Bishan North",type:"navigate",navigateTo:"/portal/outlet?outlet-id=AGRBSN01"},{label:"Bishan",longLabel:"Ark Grit • Bishan",type:"navigate",navigateTo:"/portal/outlet?outlet-id=AGRBIS01"}`,
+          { status: 200 },
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    const gyms = await listPublicGyms(fetchFn);
+    expect(gyms.some((g) => g.id === "AGRBSN01")).toBe(true);
+    expect(gyms.find((g) => g.id === "AGRBSN01")?.name).toContain("Bishan North");
+  });
+
+  it("GET /api/gyms returns the filtered catalog", async () => {
+    const { fetch } = makeFetch();
+    const previous = globalThis.fetch;
+    globalThis.fetch = fetch as typeof fetch;
+    try {
+      const response = await worker.fetch(new Request("http://localhost/api/gyms"), {} as Env);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { gyms: Array<{ id: string; name: string }> };
+      const ids = body.gyms.map((g) => g.id);
+      expect(ids).toContain("AGRBSN01");
+      expect(ids).not.toContain("ARKPLS01");
+      expect(body.gyms.find((g) => g.id === "AGRBSN01")?.name).toContain("Bishan North");
+    } finally {
+      globalThis.fetch = previous;
+    }
   });
 });
