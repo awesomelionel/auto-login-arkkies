@@ -11,7 +11,7 @@ The supported app is the Worker in [`worker/`](worker/). The Ruby / Chrome files
 ## Prerequisites
 
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up). The free Workers plan is enough to try this.
-- [Node.js 20](https://nodejs.org/) or newer (Wrangler 4 does not support older Node).
+- [Node.js 22.12](https://nodejs.org/) or newer. The Wrangler version in this repo requires it.
 - An Arkkies account only when you actually book or unlock. The public gym list does not need one.
 
 You do not need an Arkkies API key, a Cloudflare API token in the repo, or a shared password.
@@ -86,7 +86,7 @@ Use a hostname you control. Do not copy someone else's domain into your config. 
 
 Pull requests run install, typecheck, `npm test`, and `npx wrangler deploy --dry-run` in `worker/`. That job uses no secrets, so it can run on a fork. A push to `main` (a merge) runs the same checks, then deploys, then smoke-tests the live URL. The deploy job is skipped unless the checks passed. You can also run the workflow by hand from the Actions tab (`workflow_dispatch`); choose the `main` branch, or it only runs the checks.
 
-The smoke test is `GET /` (200 and the page), `GET /api/gyms` (200 and JSON), and `GET /api/status` (405). It does not log in to Arkkies. The URL is the repository variable `WORKER_PUBLIC_URL`, or `https://gymtime.linotan.com` when that variable is empty. If the smoke test fails, the job runs `wrangler rollback` to the previous stable version and fails. Deploys use the GitHub Environment `production` and a concurrency group so two deploys do not run at once.
+The smoke test is `GET /` (200 and the page), `GET /api/gyms` (200 and JSON), and `GET /api/status` (405). It does not log in to Arkkies. The URL is the repository variable `WORKER_PUBLIC_URL`, or `https://gymtime.linotan.com` when that variable is empty. Before deploying, the job saves the version id that is at 100% from `wrangler deployments list --json`. If the smoke test fails, the job runs `wrangler rollback` with that id and then fails. Deploys use the GitHub Environment `production` and a concurrency group so two deploys do not run at once.
 
 Cloudflare Workers Builds can deploy this repository on every push to `main`, but that would publish even when tests fail. GitHub Actions is used so the tests gate the deploy.
 
