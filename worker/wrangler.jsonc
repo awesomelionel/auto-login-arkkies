@@ -5,6 +5,9 @@
   // Today's date. nodejs_compat is default for this date and is omitted on purpose.
   "compatibility_date": "2026-11-10",
   "upload_source_maps": true,
+  // Logs and traces sample every request. Documented fields include the
+  // request URL and outbound fetch URL (the login URL can carry a short-lived
+  // flow id), not POST bodies or Cookie headers. Do not console.log credentials.
   "observability": {
     "enabled": true,
     "logs": {

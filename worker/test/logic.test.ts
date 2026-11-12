@@ -6,7 +6,6 @@ import {
   findCurrentSlot,
   formatRangeSgt,
   parseDoors,
-  timingSafeEqual,
   windowFromBooking,
   windowFromSelection,
 } from "../src/logic";
@@ -195,14 +194,6 @@ describe("window labels", () => {
       }),
       dest,
     ).label).toContain("SGT");
-  });
-});
-
-describe("timingSafeEqual", () => {
-  it("compares access keys without short-circuiting on length", async () => {
-    expect(await timingSafeEqual("secret", "secret")).toBe(true);
-    expect(await timingSafeEqual("secret", "secret!")).toBe(false);
-    expect(await timingSafeEqual("", "x")).toBe(false);
   });
 });
 

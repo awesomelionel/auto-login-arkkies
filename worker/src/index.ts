@@ -2,47 +2,127 @@ import { bookAndOpen, getStatus, openDoor } from "./arkkies";
 import { listPublicGyms } from "./gyms";
 import { ArkkiesError } from "./errors";
 import { renderPage } from "./html";
-import { timingSafeEqual } from "./logic";
+import { clipPublicMessage, redactSensitive } from "./redact";
 
 type JsonBody = Record<string, unknown>;
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-  });
+const CREDENTIAL_PATHS = new Set(["/api/status", "/api/book-and-open", "/api/open-door"]);
+const SENSITIVE_QUERY_KEYS = new Set([
+  "password",
+  "passwd",
+  "pass",
+  "email",
+  "username",
+  "user",
+  "cookie",
+  "set-cookie",
+  "token",
+  "csrf",
+  "csrf_token",
+  "key",
+  "access_key",
+  "authorization",
+  "session",
+]);
+const MAX_BODY_BYTES = 16_384;
+
+function json(data: unknown, status = 200, extra?: HeadersInit): Response {
+  const headers = new Headers(extra);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  headers.set("Cache-Control", "no-store");
+  headers.set("Pragma", "no-cache");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.delete("Set-Cookie");
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
-function errorResponse(error: unknown): Response {
-  if (error instanceof ArkkiesError) {
-    const body: Record<string, unknown> = { error: error.message, status: error.status };
-    if (error.details) Object.assign(body, error.details);
-    return json(body, error.status >= 400 && error.status < 600 ? error.status : 502);
+function page(html: string, status = 200, extra?: HeadersInit): Response {
+  const headers = new Headers(extra);
+  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Cache-Control", "no-store");
+  headers.set("Pragma", "no-cache");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.delete("Set-Cookie");
+  return new Response(html, { status, headers });
+}
+
+function sanitizeDetails(
+  details: Record<string, unknown> | undefined,
+  secrets: readonly string[],
+): Record<string, unknown> | undefined {
+  if (!details || typeof details.home !== "object" || details.home == null) return undefined;
+  const home = details.home as Record<string, unknown>;
+  const safe: Record<string, string> = {};
+  for (const key of ["id", "label", "longLabel", "name"] as const) {
+    const value = home[key];
+    if (typeof value !== "string" || value.length > 120) continue;
+    safe[key] = redactSensitive(value, secrets);
   }
-  const message = error instanceof Error ? error.message : "Unexpected error.";
-  return json({ error: message, status: 500 }, 500);
+  return Object.keys(safe).length ? { home: safe } : undefined;
 }
 
+function errorResponse(error: unknown, secrets: readonly string[] = []): Response {
+  if (error instanceof ArkkiesError) {
+    const status = error.status >= 400 && error.status < 600 ? error.status : 502;
+    if (!error.expose) {
+      return json({ error: "The request could not be completed.", status }, status);
+    }
+    const body: Record<string, unknown> = {
+      error: clipPublicMessage(redactSensitive(error.message, secrets)),
+      status,
+    };
+    const details = sanitizeDetails(error.details, secrets);
+    if (details) Object.assign(body, details);
+    return json(body, status);
+  }
+  const message = error instanceof Error ? redactSensitive(error.message, secrets) : "Unexpected error.";
+  return json({ error: clipPublicMessage(message) || "Unexpected error.", status: 500 }, 500);
+}
+
+/** Public gym catalog only. Authenticated Arkkies responses are never stored here. */
 function maybeCache(): Cache | undefined {
   try {
-    return caches.default;
+    const storage = (globalThis as { caches?: CacheStorage }).caches;
+    return storage?.default;
   } catch {
     return undefined;
   }
 }
 
-async function authorized(request: Request, env: Env): Promise<Response | null> {
-  const required = env.ACCESS_KEY;
-  if (!required) return null;
-  const provided = new URL(request.url).searchParams.get("key") ?? "";
-  const ok = await timingSafeEqual(provided, required);
-  if (ok) return null;
-  return json({ error: "Missing or invalid key. Add ?key= to the URL." }, 401);
+function isLoopback(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-async function readJson(request: Request): Promise<JsonBody> {
+function queryHasSecrets(url: URL): boolean {
+  for (const key of url.searchParams.keys()) {
+    if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) return true;
+  }
+  return false;
+}
+
+function pathOnly(url: URL, protocol = url.protocol): string {
+  return new URL(url.pathname || "/", `${protocol}//${url.host}`).toString();
+}
+
+async function readPayload(request: Request): Promise<JsonBody> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    throw new ArkkiesError(413, "Request body is too large.");
+  }
   const text = await request.text();
+  if (text.length > MAX_BODY_BYTES) throw new ArkkiesError(413, "Request body is too large.");
   if (!text.trim()) return {};
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    const body: JsonBody = {};
+    for (const [key, value] of new URLSearchParams(text)) body[key] = value;
+    if (typeof body.username === "string" && typeof body.email !== "string") body.email = body.username;
+    return body;
+  }
+
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -71,68 +151,66 @@ function optionalString(body: JsonBody, key: string): string | undefined {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const denied = await authorized(request, env);
-    if (denied) return denied;
-
+  async fetch(request: Request, _env: Env = {} as Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
+    const secrets: string[] = [];
 
     try {
+      if (!isLoopback(url.hostname) && url.protocol !== "https:") {
+        if (request.method === "GET" || request.method === "HEAD") {
+          return page("", 302, { Location: pathOnly(url, "https:") });
+        }
+        return json({ error: "Use HTTPS.", status: 400 }, 400);
+      }
+
+      if (queryHasSecrets(url)) {
+        if ((request.method === "GET" || request.method === "HEAD") && path === "/") {
+          return page("", 302, { Location: pathOnly(url) });
+        }
+        return json({ error: "Send credentials in the POST body, not the URL.", status: 400 }, 400);
+      }
+
       if (request.method === "GET" && path === "/") {
-        return new Response(renderPage(), {
-          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
-        });
+        return page(renderPage());
       }
 
       if (request.method === "GET" && path === "/api/gyms") {
         const gyms = await listPublicGyms((input, init) => fetch(input, init), maybeCache());
-        return new Response(JSON.stringify({ gyms }), {
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "public, max-age=300",
-          },
-        });
+        return json({ gyms });
       }
 
-      if (request.method === "POST" && path === "/api/status") {
-        const body = await readJson(request);
-        const result = await getStatus(
-          { email: requiredString(body, "email"), password: requiredString(body, "password") },
-          optionalString(body, "destination"),
-          {
+      if (CREDENTIAL_PATHS.has(path)) {
+        if (request.method !== "POST") {
+          return json({ error: "Use POST.", status: 405 }, 405, { Allow: "POST" });
+        }
+        const body = await readPayload(request);
+        const email = requiredString(body, "email");
+        secrets.push(email);
+        const password = requiredString(body, "password");
+        secrets.push(password);
+        const credentials = { email, password };
+
+        if (path === "/api/status") {
+          const result = await getStatus(credentials, optionalString(body, "destination"), {
             home: optionalString(body, "home"),
             cache: maybeCache(),
-          },
-        );
-        return json(result);
-      }
+          });
+          return json(result);
+        }
 
-      if (request.method === "POST" && path === "/api/book-and-open") {
-        const body = await readJson(request);
-        const result = await bookAndOpen({
-          email: requiredString(body, "email"),
-          password: requiredString(body, "password"),
+        const action = {
+          ...credentials,
           home: optionalString(body, "home"),
           destination: requiredString(body, "destination"),
-        });
+        };
+        const result = path === "/api/book-and-open" ? await bookAndOpen(action) : await openDoor(action);
         return json(result);
       }
 
-      if (request.method === "POST" && path === "/api/open-door") {
-        const body = await readJson(request);
-        const result = await openDoor({
-          email: requiredString(body, "email"),
-          password: requiredString(body, "password"),
-          home: optionalString(body, "home"),
-          destination: requiredString(body, "destination"),
-        });
-        return json(result);
-      }
-
-      return json({ error: "Not found." }, 404);
+      return json({ error: "Not found.", status: 404 }, 404);
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, secrets);
     }
   },
 } satisfies ExportedHandler<Env>;

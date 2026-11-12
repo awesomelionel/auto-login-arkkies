@@ -23,6 +23,20 @@ if (typeof email !== "string" || typeof password !== "string") {
   process.exit(1);
 }
 
+function scrub(value) {
+  let json = JSON.stringify(value);
+  for (const secret of [password, email]) {
+    if (typeof secret !== "string" || secret.length === 0) continue;
+    const escaped = JSON.stringify(secret).slice(1, -1);
+    json = json.split(secret).join("[redacted]").split(escaped).join("[redacted]");
+  }
+  return JSON.parse(json);
+}
+
+function log(value) {
+  console.log(JSON.stringify(scrub(value), null, 2));
+}
+
 const page = await fetch(`${base}/`);
 const pageText = await page.text();
 const pageOk =
@@ -37,7 +51,7 @@ const pageOk =
   pageText.includes('autocomplete="current-password"') &&
   !pageText.includes("Log in") &&
   !pageText.includes("Home gym");
-console.log(JSON.stringify({ check: "GET /", status: page.status, ok: pageOk, bytes: pageText.length }));
+log({ check: "GET /", status: page.status, ok: pageOk, bytes: pageText.length });
 
 const gymsRes = await fetch(`${base}/api/gyms`);
 const gymsText = await gymsRes.text();
@@ -53,14 +67,14 @@ const gymsOk =
   gymsRes.status === 200 &&
   gyms.length > 0 &&
   Boolean(bishanNorth);
-console.log(JSON.stringify({
+log({
   check: "GET /api/gyms",
   status: gymsRes.status,
   ok: gymsOk,
   count: gyms.length,
   bishanNorth: bishanNorth ? `${bishanNorth.id} ${bishanNorth.name}` : null,
   sample: gyms.slice(0, 5).map((g) => `${g.id} ${g.name}`),
-}, null, 2));
+});
 
 const statusRes = await fetch(`${base}/api/status`, {
   method: "POST",
@@ -72,7 +86,7 @@ let data;
 try {
   data = JSON.parse(raw);
 } catch {
-  console.log(JSON.stringify({ check: "POST /api/status", status: statusRes.status, ok: false, error: "non-JSON response" }));
+  log({ check: "POST /api/status", status: statusRes.status, ok: false, error: "non-JSON response" });
   process.exit(1);
 }
 
@@ -87,5 +101,5 @@ const summary = {
   currentBooking: data.currentBooking ?? null,
   error: data.error ?? null,
 };
-console.log(JSON.stringify(summary, null, 2));
+log(summary);
 process.exit(pageOk && gymsOk && summary.ok ? 0 : 1);
