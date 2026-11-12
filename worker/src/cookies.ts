@@ -40,4 +40,9 @@ export class CookieJar {
   get names(): string[] {
     return [...this.cookies.keys()];
   }
+
+  /** Cookie values, so callers can redact them from errors. Never log the result. */
+  secretValues(): string[] {
+    return [...this.cookies.values()];
+  }
 }

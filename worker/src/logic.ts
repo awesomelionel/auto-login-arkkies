@@ -143,17 +143,3 @@ export function windowFromBooking(booking: Booking, destinationId: string): Curr
     destinationId: dest,
   };
 }
-
-export async function timingSafeEqual(a: string, b: string): Promise<boolean> {
-  const enc = new TextEncoder();
-  const aBytes = enc.encode(a);
-  const bBytes = enc.encode(b);
-  const len = Math.max(aBytes.length, bBytes.length, 1);
-  const left = new Uint8Array(len);
-  const right = new Uint8Array(len);
-  left.set(aBytes);
-  right.set(bBytes);
-  let diff = aBytes.length ^ bBytes.length;
-  for (let i = 0; i < len; i++) diff |= left[i] ^ right[i];
-  return diff === 0;
-}

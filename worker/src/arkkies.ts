@@ -61,8 +61,30 @@ export class ArkkiesClient {
   private readonly allowWrites: boolean;
   private readonly cache?: Cache;
   private readonly jar = new CookieJar();
+  private readonly secretSet = new Set<string>();
 
   private outletCache: Array<{ id: string; name: string }> | null = null;
+
+  private noteSecret(value: string | null | undefined): void {
+    if (value && value.length >= 4) this.secretSet.add(value);
+  }
+
+  /** Query values such as the Ory login `flow` id can show up in an error page. */
+  private noteUrlSecrets(url: string): void {
+    try {
+      const parsed = new URL(url);
+      for (const [key, value] of parsed.searchParams) {
+        if (key.toLowerCase() === "flow" || value.length >= 16) this.noteSecret(value);
+      }
+    } catch {
+      // Ignore URLs we cannot parse.
+    }
+  }
+
+  private secretList(): string[] {
+    for (const value of this.jar.secretValues()) this.noteSecret(value);
+    return [...this.secretSet];
+  }
 
   constructor(options: ArkkiesClientOptions = {}) {
     this.fetchFn = options.fetch ?? ((input, init) => fetch(input, init));
@@ -74,6 +96,7 @@ export class ArkkiesClient {
     url: string,
     init: RequestInit & { homeOutlet?: string; json?: unknown } = {},
   ): Promise<Response> {
+    this.noteUrlSecrets(url);
     const headers = new Headers(init.headers);
     headers.set("User-Agent", UA);
     headers.set("Origin", "https://arkkies.com");
@@ -85,7 +108,18 @@ export class ArkkiesClient {
     if (cookie) headers.set("Cookie", cookie);
     const { json, homeOutlet: _home, headers: _h, ...rest } = init;
     const body = json !== undefined ? JSON.stringify(json) : init.body;
-    const response = await this.fetchFn(url, { ...rest, headers, body });
+    if (json && typeof json === "object") {
+      const record = json as Record<string, unknown>;
+      if (typeof record.password === "string") this.noteSecret(record.password);
+      if (typeof record.password_identifier === "string") this.noteSecret(record.password_identifier);
+      if (typeof record.csrf_token === "string") this.noteSecret(record.csrf_token);
+    }
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, { ...rest, headers, body });
+    } catch {
+      throw new ArkkiesError(502, "Could not reach Arkkies.");
+    }
     this.jar.store(response.headers);
     return response;
   }
@@ -101,7 +135,10 @@ export class ArkkiesClient {
   private async requireOk(response: Response, fallback: string): Promise<string> {
     const text = await this.readBody(response);
     if (!response.ok) {
-      throw new ArkkiesError(response.status, messageFromArkkiesBody(response.status, text) || fallback);
+      throw new ArkkiesError(
+        response.status,
+        messageFromArkkiesBody(response.status, text, this.secretList()) || fallback,
+      );
     }
     return text;
   }
@@ -119,11 +156,14 @@ export class ArkkiesClient {
   }
 
   async login(credentials: Credentials): Promise<void> {
+    this.noteSecret(credentials.password);
+    this.noteSecret(credentials.email);
     const browser = await this.request(
       `${API_BASE}/auth/provider/public/self-service/login/browser?refresh=true`,
     );
     const flow = await this.requireJson<unknown>(browser, "Could not start the Arkkies login.");
     const { action, csrfToken } = csrfFromLoginFlow(flow);
+    this.noteSecret(csrfToken);
     const posted = await this.request(action, {
       method: "POST",
       json: {
@@ -157,12 +197,12 @@ export class ArkkiesClient {
           return;
         }
         const text = await this.readBody(apiPosted);
-        throw new ArkkiesError(apiPosted.status, messageFromArkkiesBody(apiPosted.status, text));
+        throw new ArkkiesError(apiPosted.status, messageFromArkkiesBody(apiPosted.status, text, this.secretList()));
       }
     }
 
     const text = await this.readBody(posted);
-    throw new ArkkiesError(posted.status, messageFromArkkiesBody(posted.status, text));
+    throw new ArkkiesError(posted.status, messageFromArkkiesBody(posted.status, text, this.secretList()));
   }
 
   async getOutlets(): Promise<Array<{ id: string; name: string }>> {

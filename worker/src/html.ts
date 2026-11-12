@@ -79,7 +79,7 @@ export function renderPage(): string {
     <h1>Arkkies Auto Login</h1>
     <p class="lede">Enter your Arkkies account, pick the gym you want to go to, then book a slot and open the door.</p>
 
-    <form id="actionForm">
+    <form id="actionForm" method="post" action="/api/book-and-open" autocomplete="on">
       <div class="field">
         <label for="email">Username</label>
         <input id="email" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required />
@@ -103,9 +103,21 @@ export function renderPage(): string {
     <p id="message" role="status"></p>
   </main>
   <script>
-    const key = new URLSearchParams(location.search).get("key");
-    const api = (path) => path + (key ? "?key=" + encodeURIComponent(key) : "");
     const STORE = { username: "arkkies.username", destination: "arkkies.destination", home: "arkkies.home" };
+    (function stripSensitiveQuery() {
+      const sensitive = ["password", "passwd", "pass", "email", "username", "user", "cookie", "token", "csrf", "csrf_token", "key", "access_key", "authorization", "session"];
+      const params = new URLSearchParams(location.search);
+      let dirty = false;
+      for (const key of [...params.keys()]) {
+        if (sensitive.indexOf(key.toLowerCase()) !== -1) {
+          params.delete(key);
+          dirty = true;
+        }
+      }
+      if (!dirty) return;
+      const qs = params.toString();
+      history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+    })();
     const emailEl = document.getElementById("email");
     const passwordEl = document.getElementById("password");
     const destEl = document.getElementById("destination");
@@ -196,8 +208,10 @@ export function renderPage(): string {
         };
         const home = rememberedHome();
         if (home) body.home = home;
-        const res = await fetch(api(path), {
+        const res = await fetch(path, {
           method: "POST",
+          credentials: "omit",
+          cache: "no-store",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(body),
         });
@@ -238,7 +252,7 @@ export function renderPage(): string {
       if (saved.username) emailEl.value = saved.username;
       setMessage("Loading gyms…");
       try {
-        const res = await fetch(api("/api/gyms"), { headers: { Accept: "application/json" } });
+        const res = await fetch("/api/gyms", { credentials: "omit", cache: "no-store", headers: { Accept: "application/json" } });
         const data = await parseJson(res);
         const gyms = data.gyms || [];
         if (!gyms.length) throw new Error("No gyms were returned.");

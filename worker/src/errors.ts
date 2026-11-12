@@ -1,3 +1,5 @@
+import { clipPublicMessage, redactSensitive } from "./redact";
+
 export class ArkkiesError extends Error {
   readonly status: number;
   readonly expose: boolean;
@@ -50,16 +52,22 @@ function collectUiMessages(body: unknown): string[] {
   return [...new Set(out)];
 }
 
-export function messageFromArkkiesBody(status: number, text: string): string {
+/**
+ * Turn an Arkkies response into a short message for the browser.
+ * The raw body is never copied through: it can echo the password, a cookie, or a token.
+ */
+export function messageFromArkkiesBody(status: number, text: string, secrets: readonly string[] = []): string {
   const trimmed = text.trim();
   if (!trimmed) return `Arkkies returned ${status} with an empty body.`;
   try {
     const body = JSON.parse(trimmed) as unknown;
-    const messages = collectUiMessages(body);
-    if (messages.length) return messages.join(" ");
+    const messages = collectUiMessages(body)
+      .map((message) => redactSensitive(message, secrets))
+      .map((message) => message.trim())
+      .filter((message) => message.length > 0 && message !== "[redacted]");
+    if (messages.length) return clipPublicMessage(messages.join(" "));
   } catch {
-    // fall through and use a short raw snippet
+    // Non-JSON bodies are not shown. They are the most likely place for an echoed request.
   }
-  const snippet = trimmed.replace(/\s+/g, " ").slice(0, 200);
-  return `Arkkies returned ${status}: ${snippet}`;
+  return `Arkkies returned ${status}.`;
 }

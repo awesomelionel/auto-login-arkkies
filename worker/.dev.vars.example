@@ -1,2 +1,2 @@
-# Optional. If set, every request must include ?key=<value>.
-# ACCESS_KEY=
+# This Worker does not read environment variables or secrets.
+# Do not put an Arkkies username or password in this file.
