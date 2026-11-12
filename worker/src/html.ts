@@ -1,12 +1,6 @@
-export function renderPage(): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark" />
-  <title>Arkkies Auto Login</title>
-  <style>
+import { TERMS_VERSION, termsArticleHtml } from "./terms";
+
+const PAGE_STYLE = `
     :root {
       --bg: #101216;
       --card: #1a1d24;
@@ -32,14 +26,19 @@ export function renderPage(): string {
       margin: 0 auto;
       padding: 1.5rem 1.1rem 3rem;
     }
+    main.wide { max-width: 40rem; }
     h1 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 0 0 0.25rem; }
+    h2 { font-size: 1.02rem; margin: 1.25rem 0 0.35rem; }
     .lede { color: var(--muted); margin: 0 0 1.4rem; line-height: 1.45; }
-    form {
+    form, .prose {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 1rem;
       padding: 1rem;
     }
+    .prose p, .prose li { color: var(--muted); line-height: 1.5; }
+    .prose ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    .prose a, footer a, .check a { color: var(--accent); }
     label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0 0 0.35rem; }
     .field { margin-bottom: 0.9rem; }
     input, select, button {
@@ -52,6 +51,22 @@ export function renderPage(): string {
       color: var(--ink);
       border: 1px solid var(--line);
       padding: 0.8rem 0.85rem;
+    }
+    .check {
+      display: flex;
+      gap: 0.65rem;
+      align-items: flex-start;
+      color: var(--ink);
+      font-size: 0.92rem;
+      line-height: 1.4;
+      margin: 0;
+    }
+    .check input {
+      width: 1.15rem;
+      height: 1.15rem;
+      margin-top: 0.15rem;
+      padding: 0;
+      accent-color: var(--accent);
     }
     button {
       border: 0;
@@ -72,38 +87,32 @@ export function renderPage(): string {
     }
     #message.error { color: var(--danger); }
     #message.ok { color: var(--ok); }
-  </style>
+    footer { margin-top: 1.4rem; color: var(--muted); font-size: 0.85rem; }
+`;
+
+function documentPage(title: string, main: string, script = ""): string {
+  const scriptTag = script ? `<script>${script}</script>` : "";
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>${title}</title>
+  <style>${PAGE_STYLE}</style>
 </head>
 <body>
-  <main>
-    <h1>Arkkies Auto Login</h1>
-    <p class="lede">Enter your Arkkies account, pick the gym you want to go to, then book a slot and open the door.</p>
+  ${main}
+  ${scriptTag}
+</body>
+</html>`;
+}
 
-    <form id="actionForm" method="post" action="/api/book-and-open" autocomplete="on">
-      <div class="field">
-        <label for="email">Username</label>
-        <input id="email" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required />
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
-      </div>
-      <div class="field">
-        <label for="destination">Gym to go to</label>
-        <select id="destination" name="destination" required>
-          <option value="">Loading gyms…</option>
-        </select>
-      </div>
-      <div class="actions">
-        <button class="primary" type="submit" id="bookOpenBtn">Book &amp; Open Door</button>
-        <button class="secondary" type="button" id="openBtn">Open Door</button>
-      </div>
-    </form>
-
-    <p id="message" role="status"></p>
-  </main>
-  <script>
-    const STORE = { username: "arkkies.username", destination: "arkkies.destination", home: "arkkies.home" };
+function pageScript(): string {
+  const version = JSON.stringify(TERMS_VERSION);
+  return `
+    const STORE = { username: "arkkies.username", destination: "arkkies.destination", home: "arkkies.home", terms: "arkkies.terms" };
+    const TERMS_VERSION = ${version};
     (function stripSensitiveQuery() {
       const sensitive = ["password", "passwd", "pass", "email", "username", "user", "cookie", "token", "csrf", "csrf_token", "key", "access_key", "authorization", "session"];
       const params = new URLSearchParams(location.search);
@@ -121,6 +130,7 @@ export function renderPage(): string {
     const emailEl = document.getElementById("email");
     const passwordEl = document.getElementById("password");
     const destEl = document.getElementById("destination");
+    const termsEl = document.getElementById("terms");
     const messageEl = document.getElementById("message");
     const formEl = document.getElementById("actionForm");
     const bookOpenBtn = document.getElementById("bookOpenBtn");
@@ -139,9 +149,10 @@ export function renderPage(): string {
           username: localStorage.getItem(STORE.username) || "",
           destination: localStorage.getItem(STORE.destination) || "",
           home: localStorage.getItem(STORE.home) || "",
+          terms: localStorage.getItem(STORE.terms) || "",
         };
       } catch {
-        return { username: "", destination: "", home: "" };
+        return { username: "", destination: "", home: "", terms: "" };
       }
     }
 
@@ -150,6 +161,10 @@ export function renderPage(): string {
         if (partial.username != null) localStorage.setItem(STORE.username, partial.username);
         if (partial.destination != null) localStorage.setItem(STORE.destination, partial.destination);
         if (partial.home) localStorage.setItem(STORE.home, partial.home);
+        if (partial.terms != null) {
+          if (partial.terms) localStorage.setItem(STORE.terms, partial.terms);
+          else localStorage.removeItem(STORE.terms);
+        }
       } catch {}
     }
 
@@ -191,10 +206,19 @@ export function renderPage(): string {
       if (destEl.value) saved.destination = destEl.value;
       const homeId = data && data.home && data.home.id;
       if (homeId) saved.home = homeId;
+      if (termsEl.checked) saved.terms = TERMS_VERSION;
       writeStore(saved);
     }
 
+    function termsOk() {
+      if (termsEl.checked) return true;
+      setMessage("Tick I agree to the Terms of Use before continuing.", "error");
+      termsEl.focus();
+      return false;
+    }
+
     async function runAction(path, btn, pending) {
+      if (!termsOk()) return;
       bookOpenBtn.disabled = true;
       openBtn.disabled = true;
       btn.setAttribute("aria-busy", "true");
@@ -205,6 +229,7 @@ export function renderPage(): string {
           email: emailEl.value.trim(),
           password: passwordEl.value,
           destination: destEl.value,
+          acceptedTerms: TERMS_VERSION,
         };
         const home = rememberedHome();
         if (home) body.home = home;
@@ -246,10 +271,14 @@ export function renderPage(): string {
     emailEl.addEventListener("change", () => {
       writeStore({ username: emailEl.value.trim() });
     });
+    termsEl.addEventListener("change", () => {
+      writeStore({ terms: termsEl.checked ? TERMS_VERSION : "" });
+    });
 
     (async function init() {
       const saved = readStore();
       if (saved.username) emailEl.value = saved.username;
+      if (saved.terms === TERMS_VERSION) termsEl.checked = true;
       setMessage("Loading gyms…");
       try {
         const res = await fetch("/api/gyms", { credentials: "omit", cache: "no-store", headers: { Accept: "application/json" } });
@@ -268,7 +297,58 @@ export function renderPage(): string {
         setMessage(err.message || "Could not load the gym list.", "error");
       }
     })();
-  </script>
-</body>
-</html>`;
+  `;
+}
+
+export function renderPage(): string {
+  const version = TERMS_VERSION.replace(/"/g, "");
+  return documentPage(
+    "Arkkies Auto Login",
+    `<main>
+    <h1>Arkkies Auto Login</h1>
+    <p class="lede">Enter your Arkkies account, pick the gym you want to go to, then book a slot and open the door.</p>
+
+    <form id="actionForm" method="post" action="/api/book-and-open" autocomplete="on">
+      <div class="field">
+        <label for="email">Username</label>
+        <input id="email" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="field">
+        <label for="destination">Gym to go to</label>
+        <select id="destination" name="destination" required>
+          <option value="">Loading gyms…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="check" for="terms">
+          <input id="terms" name="acceptedTerms" type="checkbox" value="${version}" required />
+          <span>I agree to the <a href="/terms">Terms of Use</a></span>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="primary" type="submit" id="bookOpenBtn">Book &amp; Open Door</button>
+        <button class="secondary" type="button" id="openBtn">Open Door</button>
+      </div>
+    </form>
+
+    <p id="message" role="status"></p>
+    <footer><a href="/terms">Terms of Use</a></footer>
+  </main>`,
+    pageScript(),
+  );
+}
+
+export function renderTermsPage(): string {
+  return documentPage(
+    "Terms of Use",
+    `<main class="wide">
+    <h1>Terms of Use</h1>
+    ${termsArticleHtml()}
+    <footer><a href="/">Back</a></footer>
+  </main>`,
+  );
 }

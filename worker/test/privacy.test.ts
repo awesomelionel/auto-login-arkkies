@@ -5,6 +5,7 @@ import { resetGymCaches } from "../src/gyms";
 import { renderPage } from "../src/html";
 import worker from "../src/index";
 import { redactSensitive } from "../src/redact";
+import { TERMS_VERSION } from "../src/terms";
 
 const PASSWORD = "s3cret-password-value";
 const EMAIL = "member@example.com";
@@ -119,7 +120,7 @@ describe("redaction", () => {
 });
 
 describe("page", () => {
-  it("posts credentials and remembers only username, gym, and home gym", () => {
+  it("posts credentials and remembers username, gym, home gym, and the terms version", () => {
     const html = renderPage();
     expect(html).toContain('method="post"');
     expect(html).toContain('action="/api/book-and-open"');
@@ -127,6 +128,8 @@ describe("page", () => {
     expect(html).toContain("arkkies.username");
     expect(html).toContain("arkkies.destination");
     expect(html).toContain("arkkies.home");
+    expect(html).toContain("arkkies.terms");
+    expect(html).toContain("I agree to the Terms of Use");
     expect(html).not.toContain("?key=");
     expect(html).not.toContain("ACCESS_KEY");
     expect(html).not.toContain("localStorage.setItem(STORE.password");
@@ -181,6 +184,7 @@ describe("credential responses", () => {
       email: EMAIL,
       password: PASSWORD,
       destination: "AGRBSN01",
+      acceptedTerms: TERMS_VERSION,
     });
     expect(response.status).toBe(400);
     const text = await expectPrivate(response);
@@ -202,6 +206,7 @@ describe("credential responses", () => {
       email: EMAIL,
       password: PASSWORD,
       destination: "AGRBSN01",
+      acceptedTerms: TERMS_VERSION,
     });
     expect(raw.status).toBe(401);
     const rawText = await expectPrivate(raw);
@@ -210,7 +215,11 @@ describe("credential responses", () => {
     globalThis.fetch = (async () => {
       throw new Error(`network down ${PASSWORD}`);
     }) as typeof fetch;
-    const thrown = await postAction("/api/status", { email: EMAIL, password: PASSWORD });
+    const thrown = await postAction("/api/status", {
+      email: EMAIL,
+      password: PASSWORD,
+      acceptedTerms: TERMS_VERSION,
+    });
     expect(thrown.status).toBe(502);
     const thrownText = await expectPrivate(thrown);
     expect(thrownText).toContain("Could not reach Arkkies.");
@@ -269,6 +278,7 @@ describe("credential responses", () => {
           username: EMAIL,
           password: PASSWORD,
           destination: "AGRBSN01",
+          acceptedTerms: TERMS_VERSION,
         }),
       }),
     );
@@ -290,7 +300,7 @@ describe("credential responses", () => {
       new Request("http://127.0.0.1:8787/api/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: PASSWORD }),
+        body: JSON.stringify({ acceptedTerms: TERMS_VERSION, password: PASSWORD }),
       }),
     );
     expect(response.status).toBe(400);

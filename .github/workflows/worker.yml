@@ -1,0 +1,98 @@
+# Test on every pull request. Deploy only after those checks pass on main.
+# The test job uses no secrets, so a fork pull request can run it.
+name: Worker
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run
+
+  deploy:
+    name: deploy
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.WORKER_PUBLIC_URL != '' && vars.WORKER_PUBLIC_URL || 'https://gymtime.linotan.com' }}
+    concurrency:
+      group: production-arkkies-auto-login
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+        working-directory: worker
+
+      - name: Deploy
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
+
+      - name: Smoke test
+        id: smoke
+        env:
+          WORKER_PUBLIC_URL: ${{ vars.WORKER_PUBLIC_URL }}
+        run: bash .github/scripts/smoke-test.sh
+
+      - name: Roll back to the previous version
+        if: failure() && steps.deploy.outcome == 'success' && steps.smoke.outcome == 'failure'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          # --message supplies the prompt default. GitHub Actions is non-interactive,
+          # so Wrangler accepts that default and the confirm prompt's yes fallback.
+          # Omitting a version id selects the stable version before the one just deployed.
+          command: rollback --yes --message=smoke-test-failed

@@ -1,8 +1,9 @@
 import { bookAndOpen, getStatus, openDoor } from "./arkkies";
 import { listPublicGyms } from "./gyms";
 import { ArkkiesError } from "./errors";
-import { renderPage } from "./html";
+import { renderPage, renderTermsPage } from "./html";
 import { clipPublicMessage, redactSensitive } from "./redact";
+import { termsAcceptanceError } from "./terms";
 
 type JsonBody = Record<string, unknown>;
 
@@ -175,6 +176,10 @@ export default {
         return page(renderPage());
       }
 
+      if (request.method === "GET" && path === "/terms") {
+        return page(renderTermsPage());
+      }
+
       if (request.method === "GET" && path === "/api/gyms") {
         const gyms = await listPublicGyms((input, init) => fetch(input, init), maybeCache());
         return json({ gyms });
@@ -185,6 +190,8 @@ export default {
           return json({ error: "Use POST.", status: 405 }, 405, { Allow: "POST" });
         }
         const body = await readPayload(request);
+        const termsError = termsAcceptanceError(body.acceptedTerms);
+        if (termsError) throw new ArkkiesError(400, termsError);
         const email = requiredString(body, "email");
         secrets.push(email);
         const password = requiredString(body, "password");
