@@ -2,16 +2,16 @@
 
 A small Cloudflare Worker that books the current Arkkies gym-access slot and unlocks the door. Each person types their own Arkkies username and password. The Worker uses those credentials, for that request only, to call `https://api.arkkies.com/v2` (cookie login), then discards them.
 
-The page remembers your username, last gym, and home gym in the browser. It does not remember the password.
+The page remembers your username, last gym, home gym, and the version of the Terms of Use you accepted, in the browser. It does not remember the password. Booking or opening a door requires that acceptance, and the page asks again when the terms version changes.
 
-There is no shared access key. Nothing in this repository has to be set as a Worker secret or variable before it will run.
+There is no shared access key. Nothing in this repository has to be set as a Worker secret or variable before the Worker will run. Deploying from GitHub Actions uses two GitHub secrets, described under [Deploy from GitHub](#deploy-from-github). The Worker does not read them.
 
 The supported app is the Worker in [`worker/`](worker/). The Ruby / Chrome files at the repository root are an older version; see [Legacy app](#legacy-app).
 
 ## Prerequisites
 
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up). The free Workers plan is enough to try this.
-- [Node.js 20](https://nodejs.org/) or newer (Wrangler 4 does not support older Node).
+- [Node.js 22.12](https://nodejs.org/) or newer. The Wrangler version in this repo requires it.
 - An Arkkies account only when you actually book or unlock. The public gym list does not need one.
 
 You do not need an Arkkies API key, a Cloudflare API token in the repo, or a shared password.
@@ -82,9 +82,43 @@ Workers.dev hostnames are already HTTPS. To use your own hostname, put the DNS z
 
 Use a hostname you control. Do not copy someone else's domain into your config. One running deployment of this project is `https://gymtime.linotan.com` on the Worker `arkkies-auto-login`; that is the maintainer's hostname, not part of the app you have to reuse.
 
+## Deploy from GitHub
+
+Pull requests run install, typecheck, `npm test`, and `npx wrangler deploy --dry-run` in `worker/`. That job uses no secrets, so it can run on a fork. A push to `main` (a merge) runs the same checks, then deploys, then smoke-tests the live URL. The deploy job is skipped unless the checks passed. You can also run the workflow by hand from the Actions tab (`workflow_dispatch`); choose the `main` branch, or it only runs the checks.
+
+The smoke test is `GET /` (200 and the page), `GET /api/gyms` (200 and JSON), and `GET /api/status` (405). It does not log in to Arkkies. The URL is the repository variable `WORKER_PUBLIC_URL`, or `https://gymtime.linotan.com` when that variable is empty. Before deploying, the job saves the version id that is at 100% from `wrangler deployments list --json`. If the smoke test fails, the job runs `wrangler rollback` with that id and then fails. Deploys use the GitHub Environment `production` and a concurrency group so two deploys do not run at once.
+
+Cloudflare Workers Builds can deploy this repository on every push to `main`, but that would publish even when tests fail. GitHub Actions is used so the tests gate the deploy.
+
+### One-time setup
+
+Do this once, before the first merge you want deployed. Do not commit the token or the account id, and do not paste them into a log.
+
+1. In the Cloudflare dashboard, open [API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token** → the **Edit Cloudflare Workers** template → **Use template**. The template's permissions are listed in [API token templates](https://developers.cloudflare.com/fundamentals/api/reference/template/).
+2. Under **Account Resources**, include only the account that owns the Worker `arkkies-auto-login`. Do not leave this on all accounts.
+3. The template also grants **Zone** → **Workers Routes** → **Write**, which starts out on all zones. This Worker's [`worker/wrangler.jsonc`](worker/wrangler.jsonc) does not set `routes` or a custom domain. `gymtime.linotan.com` is already attached in the dashboard, and a script deploy does not change that route. Remove the zone permission. Add it back, limited to the `linotan.com` zone only, if you later put a `routes` or `custom_domain` entry in `wrangler.jsonc`. That permission is what lets Wrangler add or change a route. [Workers roles](https://developers.cloudflare.com/workers/authorization/workers/) say that after a route or custom domain exists, deploying a new version needs Worker edit access only, as long as the deploy does not add, update, or remove that connection.
+4. The template also includes Workers KV, R2, and Tail. This Worker uses none of them. You can remove **Workers KV Storage Write**, **Workers R2 Storage Write**, and **Workers Tail Read**. Keep **Workers Scripts Write**, **Account Settings Read**, **User Details Read**, and **User Memberships Read** so Wrangler can deploy and see the account.
+5. Create the token and copy the secret once. It is shown only once.
+6. On GitHub: **Settings** → **Environments** → **New environment**. Name it `production`. Do not add required reviewers if a merge should deploy by itself. Reviewers make each deploy wait for a person.
+7. On that environment, add two **environment** secrets (not repository secrets, so pull request jobs never receive them):
+   - `CLOUDFLARE_API_TOKEN`: the token from step 5.
+   - `CLOUDFLARE_ACCOUNT_ID`: the account id. It is in the dashboard URL (`https://dash.cloudflare.com/<account-id>`) and in `npx wrangler whoami`. The workflow reads this secret. It is not written in `wrangler.jsonc`.
+8. Optional: **Settings** → **Secrets and variables** → **Actions** → **Variables** → `WORKER_PUBLIC_URL`. Set it only if the smoke test should use a hostname other than `https://gymtime.linotan.com`.
+9. Turn on Actions for the repository if it is off. Add a branch protection rule or ruleset for `main` that requires a pull request and requires the status check named `test` to pass. That check shows up in the list after this workflow has run on a pull request once. Do not require the `deploy` check. It does not run on pull requests, and a skipped required check can block merges.
+
+If the first deploy fails because the secrets were missing, the previous Worker stays in place. Add the secrets and re-run the **Worker** workflow from the Actions tab on `main`.
+
+## Terms of Use
+
+`/terms` is the agreement for people using the running site. The checkbox on the form must be ticked before **Book & Open Door** or **Open Door**. The browser stores the accepted version in `localStorage` (`arkkies.terms`). Credential requests must send `acceptedTerms` set to the current version, or the Worker returns 400.
+
+The text is a template, not legal advice. Have a lawyer review it before you rely on it. To publish a new version, edit `TERMS_VERSION` and `TERMS_EFFECTIVE_DATE` at the top of [`worker/src/terms.ts`](worker/src/terms.ts). The contact line is a placeholder (`[add an email address here]`). Replace it with a real address.
+
+The repository [LICENSE](LICENSE) is the MIT License, copyright Lionel Tan. Its warranty disclaimer covers the code. The terms cover use of the website.
+
 ## Variables and secrets
 
-None are required, and this Worker does not read any.
+None are required for the Worker to run, and this Worker does not read any. The GitHub secrets in [Deploy from GitHub](#deploy-from-github) are only for the deploy job.
 
 `worker/wrangler.jsonc` has no `vars` and no KV, D1, R2, Durable Object, or service bindings. You do not run `wrangler secret put`.
 
@@ -99,9 +133,9 @@ Leaving the old secret in place has no effect, because the code never reads `env
 ## What the page does
 
 1. The gym dropdown is filled from Arkkies' public gym list. Product-only entries such as Ark+ are omitted.
-2. You enter your Arkkies username and password and pick a gym. The browser password manager can fill the fields. Your home gym is detected from your subscription and is not shown as a destination.
-3. **Book & Open Door** books the gym-access slot that contains the current time in Singapore, then unlocks the door. If a booking already covers now, it only unlocks.
-4. **Open Door** unlocks the door for an existing booking at that gym.
+2. You enter your Arkkies username and password, pick a gym, and tick **I agree to the Terms of Use**. The browser password manager can fill the username and password. Your home gym is detected from your subscription and is not shown as a destination.
+3. **Book & Open Door** books the gym-access slot that contains the current time in Singapore, then unlocks the door. If a booking already covers now, it only unlocks. The form does not submit until the terms box is ticked.
+4. **Open Door** unlocks the door for an existing booking at that gym. It uses the same terms check.
 
 The form uses `method="post"`. JavaScript sends a JSON body. If JavaScript does not run, the browser still POSTs the form to `/api/book-and-open` instead of putting the password in the URL.
 
@@ -109,7 +143,7 @@ The form uses `method="post"`. JavaScript sends a JSON body. If JavaScript does 
 
 ### How credentials are handled
 
-- The password stays in the password field. `localStorage` stores three keys only: `arkkies.username`, `arkkies.destination`, and `arkkies.home`. It does not store the password.
+- The password stays in the password field. `localStorage` stores four keys only: `arkkies.username`, `arkkies.destination`, `arkkies.home`, and `arkkies.terms` (the terms version you accepted). It does not store the password. When `TERMS_VERSION` changes, the stored version no longer matches and the box starts unticked.
 - The browser sends the username and password in a POST body to `/api/status`, `/api/book-and-open`, or `/api/open-door`. Those routes reject any other method. If the URL contains a password, email, token, cookie, or similar parameter, the Worker refuses the request and, for the HTML page, redirects to the path with the query string removed. Do not put a password in a URL anyway: the address you requested can be retained by the platform before this code runs (see below).
 - For that one request, the Worker keeps the password and the Arkkies session cookie in memory. It logs in to `https://api.arkkies.com/v2`, books or unlocks, and then drops both. The cookie jar is not shared across requests.
 - The Worker does not write the password, session cookie, or login token to Workers KV, D1, R2, Durable Objects, or the Cache API. There are no such bindings. The Cache API is used only for the public gym catalog (`https://arkkies.com/app.bundle.js` and `https://api.arkkies.com/v2/brand/outlet`).
@@ -149,8 +183,11 @@ The git branch `gcp` (not contained in `main`) has an earlier Cloud Run layout (
 ```
 worker/                 Cloudflare Worker (use this)
   wrangler.jsonc        Worker config. No bindings, no secrets.
-  src/                  Request handler, Arkkies client, page
-  test/                 Unit tests, including credential redaction
+  src/                  Request handler, Arkkies client, page, terms
+  test/                 Unit tests, including credential redaction and terms
+.github/workflows/worker.yml
+                        Pull request checks, and deploy from main
+LICENSE                 MIT License
 app.rb, views/, Dockerfile, Gemfile
                         Legacy Chrome automation. Do not deploy.
 ```

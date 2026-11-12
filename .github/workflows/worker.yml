@@ -1,0 +1,117 @@
+# Test on every pull request. Deploy only after those checks pass on main.
+# The test job uses no secrets, so a fork pull request can run it.
+name: Worker
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run
+
+  deploy:
+    name: deploy
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.WORKER_PUBLIC_URL != '' && vars.WORKER_PUBLIC_URL || 'https://gymtime.linotan.com' }}
+    concurrency:
+      group: production-arkkies-auto-login
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+        working-directory: worker
+
+      - name: Record the current production version
+        id: previous
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler deployments list --json > "$RUNNER_TEMP/deployments.json"
+          node ../.github/scripts/previous-version.mjs "$RUNNER_TEMP/deployments.json" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        id: deploy
+        uses: cloudflare/wrangler-action@25853364521e0d392ece9b0c1e97a4b37b638087 # v4.1.2
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
+
+      - name: Smoke test
+        id: smoke
+        env:
+          WORKER_PUBLIC_URL: ${{ vars.WORKER_PUBLIC_URL }}
+        run: bash .github/scripts/smoke-test.sh
+
+      - name: Roll back to the version recorded before deploy
+        if: failure() && steps.deploy.outcome == 'success' && steps.smoke.outcome == 'failure'
+        working-directory: worker
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
+        run: |
+          case "$PREVIOUS_VERSION_ID" in
+            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;;
+            *)
+              echo "Refusing to roll back. The recorded version id is missing or not a UUID."
+              exit 1
+              ;;
+          esac
+          # Wrangler 4.159 declares --yes on rollback but the handler does not read it.
+          # With CI=true and no TTY, the message prompt uses --message and the confirm prompt takes its yes fallback.
+          # The id is the 100% version saved before this deploy.
+          npx wrangler rollback "$PREVIOUS_VERSION_ID" --message=smoke-test-failed
