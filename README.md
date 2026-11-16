@@ -112,7 +112,7 @@ If the first deploy fails because the secrets were missing, the previous Worker 
 
 `/terms` is the agreement for people using the running site. The checkbox on the form must be ticked before **Book & Open Door** or **Open Door**. The browser stores the accepted version in `localStorage` (`arkkies.terms`). Credential requests must send `acceptedTerms` set to the current version, or the Worker returns 400.
 
-The text is a template, not legal advice. Have a lawyer review it before you rely on it. To publish a new version, edit `TERMS_VERSION` and `TERMS_EFFECTIVE_DATE` at the top of [`worker/src/terms.ts`](worker/src/terms.ts). The contact line is a placeholder (`[add an email address here]`). Replace it with a real address.
+The text is a template, not legal advice. Have a lawyer review it before you rely on it. To publish a new version, edit `TERMS_VERSION` and `TERMS_EFFECTIVE_DATE` at the top of [`worker/src/terms.ts`](worker/src/terms.ts). The contact address on that page is me@linotan.com.
 
 The repository [LICENSE](LICENSE) is the MIT License, copyright Lionel Tan. Its warranty disclaimer covers the code. The terms cover use of the website.
 

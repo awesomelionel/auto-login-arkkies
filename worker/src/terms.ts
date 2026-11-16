@@ -8,6 +8,16 @@ export const TERMS_VERSION = "2026-11-12";
 /** Shown on /terms. This is the date the current version took effect. */
 export const TERMS_EFFECTIVE_DATE = "12 November 2026";
 
+export const GITHUB_REPO_URL = "https://github.com/awesomelionel/auto-login-arkkies";
+
+export const PASSWORD_STORAGE_NOTICE =
+  "The tool does not store your password. This site has no database of accounts. Your browser may remember, on your own device, your username, the last gym you chose, your home gym, and the version of these terms you accepted. It does not remember the password.";
+
+/** Visible sentence, with the GitHub words linked. */
+export function affiliationNoticeHtml(): string {
+  return `<p class="notice">Not affiliated with ARK Grit or Arkkies. This is a community project. The code is <a href="${GITHUB_REPO_URL}">open source on GitHub</a>.</p>`;
+}
+
 export function termsAcceptanceError(value: unknown): string | null {
   const accepted = typeof value === "string" ? value.trim() : "";
   if (accepted === TERMS_VERSION) return null;
@@ -39,7 +49,7 @@ export function termsArticleHtml(): string {
       </ul>
 
       <h2>Credentials and logs</h2>
-      <p>The tool does not store your password. This site has no database of accounts. Your browser may remember, on your own device, your username, the last gym you chose, your home gym, and the version of these terms you accepted. It does not remember the password.</p>
+      <p>${PASSWORD_STORAGE_NOTICE}</p>
       <p>The password is sent in the body of that one request, used to call Arkkies, and then discarded. It is not written to Workers KV, D1, R2, or similar storage.</p>
       <p>Cloudflare runs this code. Cloudflare terminates HTTPS and handles the request in memory while it is processed. Cloudflare's logs store request metadata, including the HTTP method and the URL, for a short retention period. That is not a copy of the password, as long as the password stays in the request body and not in the URL. Do not put a password in the URL.</p>
       <p>Whoever operates a copy of this tool can change that copy. If you did not deploy it yourself, you are trusting the person who did.</p>
@@ -58,6 +68,6 @@ export function termsArticleHtml(): string {
       <p>These terms are governed by the laws of Singapore.</p>
 
       <h2>Contact</h2>
-      <p>Contact the operator: [add an email address here].</p>
+      <p>Contact the operator: <a href="mailto:me@linotan.com">me@linotan.com</a>.</p>
     </article>`;
 }

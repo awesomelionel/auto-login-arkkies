@@ -1,4 +1,4 @@
-import { TERMS_VERSION, termsArticleHtml } from "./terms";
+import { PASSWORD_STORAGE_NOTICE, TERMS_VERSION, affiliationNoticeHtml, termsArticleHtml } from "./terms";
 
 const PAGE_STYLE = `
     :root {
@@ -38,7 +38,8 @@ const PAGE_STYLE = `
     }
     .prose p, .prose li { color: var(--muted); line-height: 1.5; }
     .prose ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
-    .prose a, footer a, .check a { color: var(--accent); }
+    .notice { color: var(--muted); margin: 0 0 1.1rem; line-height: 1.45; font-size: 0.92rem; }
+    .prose a, footer a, .check a, .notice a { color: var(--accent); }
     label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0 0 0.35rem; }
     .field { margin-bottom: 0.9rem; }
     input, select, button {
@@ -307,6 +308,7 @@ export function renderPage(): string {
     `<main>
     <h1>Arkkies Auto Login</h1>
     <p class="lede">Enter your Arkkies account, pick the gym you want to go to, then book a slot and open the door.</p>
+    ${affiliationNoticeHtml()}
 
     <form id="actionForm" method="post" action="/api/book-and-open" autocomplete="on">
       <div class="field">
@@ -335,6 +337,7 @@ export function renderPage(): string {
       </div>
     </form>
 
+    <p class="notice">${PASSWORD_STORAGE_NOTICE}</p>
     <p id="message" role="status"></p>
     <footer><a href="/terms">Terms of Use</a></footer>
   </main>`,
@@ -347,6 +350,7 @@ export function renderTermsPage(): string {
     "Terms of Use",
     `<main class="wide">
     <h1>Terms of Use</h1>
+    ${affiliationNoticeHtml()}
     ${termsArticleHtml()}
     <footer><a href="/">Back</a></footer>
   </main>`,
