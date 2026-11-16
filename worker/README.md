@@ -11,4 +11,4 @@ npx wrangler deploy --dry-run
 npx wrangler deploy
 ```
 
-No Worker secrets or variables are required. Do not put an Arkkies password in a file here.
+No Worker secrets or variables are required. Deploy from GitHub is described in the repository README. Do not put an Arkkies password in a file here.

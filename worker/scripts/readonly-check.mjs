@@ -4,10 +4,22 @@
  * Usage: node scripts/readonly-check.mjs <har-path> [base-url]
  * Reads credentials only in memory. Never prints secrets or writes them to disk.
  */
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 const harPath = process.argv[2];
 const base = (process.argv[3] || "http://127.0.0.1:8787").replace(/\/$/, "");
+
+function termsVersion() {
+  const src = readFileSync(new URL("../src/terms.ts", import.meta.url), "utf8");
+  const match = src.match(/export const TERMS_VERSION = "([^"]+)"/);
+  if (!match) {
+    console.error("TERMS_VERSION is missing from src/terms.ts.");
+    process.exit(1);
+  }
+  return match[1];
+}
+
 if (!harPath) {
   console.error("Usage: node scripts/readonly-check.mjs <har-path> [base-url]");
   process.exit(2);
@@ -79,7 +91,7 @@ log({
 const statusRes = await fetch(`${base}/api/status`, {
   method: "POST",
   headers: { "Content-Type": "application/json", Accept: "application/json" },
-  body: JSON.stringify({ email, password, destination: "AGRBSN01" }),
+  body: JSON.stringify({ email, password, destination: "AGRBSN01", acceptedTerms: termsVersion() }),
 });
 const raw = await statusRes.text();
 let data;
