@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import worker from "../src/index";
-import { TERMS_EFFECTIVE_DATE, TERMS_VERSION } from "../src/terms";
+import { GITHUB_REPO_URL, PASSWORD_STORAGE_NOTICE, TERMS_EFFECTIVE_DATE, TERMS_VERSION } from "../src/terms";
 
 const EMAIL = "member@example.com";
 const PASSWORD = "s3cret-password-value";
@@ -30,8 +30,9 @@ describe("terms page", () => {
     expect(html).toContain("Lionel Tan");
     expect(html).toContain("indemnify and hold harmless");
     expect(html).toContain("Cloudflare");
-    expect(html).toContain("[add an email address here]");
-    expect(html).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    expect(html).toContain('href="mailto:me@linotan.com"');
+    expect(html).toContain("me@linotan.com");
+    expect(html).not.toContain("[add an email address here]");
     expect(html).toContain('href="/"');
 
     const home = await worker.fetch(new Request("https://gym.example/"));
@@ -48,6 +49,21 @@ describe("terms page", () => {
     const script = page.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? "";
     expect(script.length).toBeGreaterThan(0);
     expect(() => new Function(script)).not.toThrow();
+  });
+
+  it("renders the affiliation notice, GitHub link, and password notice", async () => {
+    const affiliation =
+      "Not affiliated with ARK Grit or Arkkies. This is a community project. The code is open source on GitHub.";
+    const home = await worker.fetch(new Request("https://gym.example/"));
+    const terms = await worker.fetch(new Request("https://gym.example/terms"));
+    for (const response of [home, terms]) {
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      const visible = html.replace(/<[^>]+>/g, "");
+      expect(visible).toContain(affiliation);
+      expect(html).toContain(`href="${GITHUB_REPO_URL}"`);
+      expect(html).toContain(PASSWORD_STORAGE_NOTICE);
+    }
   });
 });
 
